@@ -39,7 +39,8 @@ def upsert_usage(
     cost_usd: float,
 ) -> None:
     """Upsert usage data for an employee."""
-    total_tokens = input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens
+    # Only count actual API tokens, not cached tokens (they're "free" from a usage perspective)
+    total_tokens = input_tokens + output_tokens
 
     conn.execute(
         """
