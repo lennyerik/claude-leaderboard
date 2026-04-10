@@ -95,7 +95,7 @@ claude-otel-leaderboard/
 ├── README.md               # Setup and usage instructions
 ├── Dockerfile              # Container build
 ├── src/
-│   └── claude_otel/
+│   └── claude_leaderboard/
 │       ├── __init__.py
 │       ├── main.py         # FastAPI app, OTLP receiver, API endpoints
 │       ├── database.py     # SQLite operations
@@ -123,7 +123,7 @@ Unit tests for:
 ## Configuration
 
 Environment variables:
-- `DATABASE_PATH` - SQLite file path (default: `./claude_otel.db`)
+- `DATABASE_PATH` - SQLite file path (default: `./claude_leaderboard.db`)
 - `PORT` - Server port (default: 8000)
 - `HOST` - Bind address (default: `0.0.0.0`)
 
@@ -131,7 +131,7 @@ Environment variables:
 
 Local development:
 ```bash
-uv run python -m claude_otel.main
+uv run python -m claude_leaderboard.main
 ```
 
 Docker:

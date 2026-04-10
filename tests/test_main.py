@@ -2,10 +2,10 @@ import sqlite3
 import os
 import pytest
 from fastapi.testclient import TestClient
-from claude_otel.main import app, get_db
-from claude_otel.database import init_db
+from claude_leaderboard.main import app, get_db
+from claude_leaderboard.database import init_db
 
-TEST_DB_PATH = "/tmp/test_claude_otel_main.db"
+TEST_DB_PATH = "/tmp/test_claude_leaderboard_main.db"
 
 
 def override_get_db():

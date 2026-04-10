@@ -1,7 +1,7 @@
 [project]
-name = "claude-otel"
+name = "claude-leaderboard"
 version = "0.1.0"
-description = "Claude Code OpenTelemetry Leaderboard"
+description = "Claude Leaderboard - Track Claude Code usage per employee"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/claude_otel"]
+packages = ["src/claude_leaderboard"]
 
 [build-system]
 requires = ["hatchling"]

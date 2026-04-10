@@ -1,6 +1,6 @@
-# Claude Code OpenTelemetry Leaderboard
+# Claude Leaderboard
 
-Track token usage and costs per employee from Claude Code (Cowork) telemetry.
+Track Claude Code token usage and costs per employee. A simple OpenTelemetry endpoint with a web-based leaderboard.
 
 ## Features
 
@@ -18,7 +18,7 @@ Track token usage and costs per employee from Claude Code (Cowork) telemetry.
 
 ```bash
 # Run the server
-uv run python -m claude_otel.main
+uv run python -m claude_leaderboard.main
 ```
 
 The server will start on http://localhost:8000
@@ -39,7 +39,7 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_PATH` | `./claude_otel.db` | Path to SQLite database |
+| `DATABASE_PATH` | `./claude_leaderboard.db` | Path to SQLite database |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
 
@@ -77,14 +77,14 @@ export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://your-server:8000/v1/logs
 uv run pytest
 
 # Run with auto-reload (for development)
-uv run uvicorn claude_otel.main:app --reload
+uv run uvicorn claude_leaderboard.main:app --reload
 ```
 
 ## Project Structure
 
 ```
 claude-otel-leaderboard/
-├── src/claude_otel/
+├── src/claude_leaderboard/
 │   ├── __init__.py
 │   ├── main.py         # FastAPI app
 │   ├── database.py     # SQLite operations

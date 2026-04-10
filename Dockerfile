@@ -17,7 +17,7 @@ RUN uv sync --no-dev
 RUN mkdir -p /data
 
 # Set environment variables
-ENV DATABASE_PATH=/data/claude_otel.db
+ENV DATABASE_PATH=/data/claude_leaderboard.db
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV PYTHONPATH=/app/src
@@ -26,4 +26,4 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # Run the application
-CMD ["uv", "run", "--", "python", "-m", "claude_otel.main"]
+CMD ["uv", "run", "--", "python", "-m", "claude_leaderboard.main"]

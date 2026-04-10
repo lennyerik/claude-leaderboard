@@ -1,6 +1,6 @@
 import sqlite3
 import pytest
-from claude_otel.database import init_db, upsert_usage, get_leaderboard
+from claude_leaderboard.database import init_db, upsert_usage, get_leaderboard
 
 TEST_DB = ":memory:"
 

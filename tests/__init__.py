@@ -1,1 +1,1 @@
-"""Tests for claude_otel."""
+"""Tests for claude_leaderboard."""

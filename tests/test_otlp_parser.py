@@ -1,6 +1,6 @@
 import json
 import pytest
-from claude_otel.otlp_parser import parse_otlp_logs, extract_api_request_events
+from claude_leaderboard.otlp_parser import parse_otlp_logs, extract_api_request_events
 
 
 def test_parse_empty_otlp_logs():

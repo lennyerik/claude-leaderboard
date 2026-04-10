@@ -5,11 +5,11 @@ from contextlib import contextmanager
 from fastapi import FastAPI, Request, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from claude_otel.database import init_db, upsert_usage, get_leaderboard
-from claude_otel.otlp_parser import parse_otlp_logs, extract_api_request_events
+from claude_leaderboard.database import init_db, upsert_usage, get_leaderboard
+from claude_leaderboard.otlp_parser import parse_otlp_logs, extract_api_request_events
 
 # Configuration
-DATABASE_PATH = os.getenv("DATABASE_PATH", "./claude_otel.db")
+DATABASE_PATH = os.getenv("DATABASE_PATH", "./claude_leaderboard.db")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
