@@ -1,7 +1,7 @@
 """FastAPI application for Claude OTel leaderboard."""
 import os
 import sqlite3
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, Request, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -13,7 +13,19 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./claude_leaderboard.db")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
-app = FastAPI(title="Claude Code OTel Leaderboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler for startup/shutdown events."""
+    # Startup: Initialize database
+    conn = sqlite3.connect(DATABASE_PATH)
+    init_db(conn)
+    conn.close()
+    yield
+    # Shutdown: nothing to clean up
+
+
+app = FastAPI(title="Claude Code OTel Leaderboard", lifespan=lifespan)
 
 
 @contextmanager
@@ -30,15 +42,6 @@ def get_db():
     """FastAPI dependency for database."""
     with get_db_connection() as conn:
         yield conn
-
-
-# Initialize database on startup
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    conn = sqlite3.connect(DATABASE_PATH)
-    init_db(conn)
-    conn.close()
 
 
 @app.get("/health")
