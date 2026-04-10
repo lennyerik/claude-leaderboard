@@ -83,7 +83,6 @@ uv run uvicorn claude_leaderboard.main:app --reload
 ## Project Structure
 
 ```
-claude-otel-leaderboard/
 ├── src/claude_leaderboard/
 │   ├── __init__.py
 │   ├── main.py         # FastAPI app
@@ -94,10 +93,17 @@ claude-otel-leaderboard/
 │   ├── test_otlp_parser.py
 │   ├── test_main.py
 │   └── test_e2e.py
+├── CLAUDE.md           # Development guidance for Claude Code
 ├── Dockerfile
 ├── pyproject.toml
 └── README.md
 ```
+
+## Notes
+
+- The leaderboard auto-refreshes every 30 seconds
+- When Claude Code users are authenticated with OAuth, their email is shown; otherwise their device ID is displayed
+- All commits are signed with SSH keys
 
 ## License
 
