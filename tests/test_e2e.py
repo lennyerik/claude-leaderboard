@@ -97,7 +97,7 @@ def test_full_flow_claude_code_to_leaderboard():
             assert response.json()["success"] is True
 
     # Check leaderboard sorted by tokens
-    response = client.get("/api/leaderboard?sort=total_tokens")
+    response = client.get("/api/leaderboard?sort=tokens")
     assert response.status_code == 200
     data = response.json()
 
@@ -105,21 +105,21 @@ def test_full_flow_claude_code_to_leaderboard():
     assert data["count"] == 3
 
     # Verify sorting (Charlie: 4500+1500+3000=9000, Alice: 1500+3000=4500, Bob: 750)
-    employees = data["employees"]
+    employees = data["data"]
     assert employees[0]["email"] == "charlie@company.com"
     assert employees[0]["total_tokens"] == 9000  # (3000+1500) + (1000+500) + (2000+1000)
     assert employees[0]["total_cost"] == pytest.approx(0.09, abs=0.001)  # 0.045 + 0.015 + 0.030
-    assert employees[0]["prompt_count"] == 3
+    assert employees[0]["request_count"] == 3
 
     # Alice should be second (1000+500 + 2000+1000 = 4500)
     assert employees[1]["email"] == "alice@company.com"
     assert employees[1]["total_tokens"] == 4500
-    assert employees[1]["prompt_count"] == 2
+    assert employees[1]["request_count"] == 2
 
     # Bob should be third (500+250 = 750)
     assert employees[2]["email"] == "bob@company.com"
     assert employees[2]["total_tokens"] == 750
-    assert employees[2]["prompt_count"] == 1
+    assert employees[2]["request_count"] == 1
 
     # Test HTML leaderboard page
     response = client.get("/leaderboard")
@@ -127,3 +127,63 @@ def test_full_flow_claude_code_to_leaderboard():
     assert b"charlie@company.com" in response.content
     assert b"alice@company.com" in response.content
     assert b"bob@company.com" in response.content
+
+
+def test_full_flow_with_all_metadata():
+    """Test full flow including all metadata fields."""
+    # Use a unique email to avoid conflicts with other tests
+    unique_email = "metadata-test@example.com"
+
+    payload = {
+        "resourceLogs": [{
+            "resource": {
+                "attributes": [
+                    {"key": "service.name", "value": {"stringValue": "claude-code"}},
+                ]
+            },
+            "scopeLogs": [{
+                "scope": {"name": "com.anthropic.claude_code.events"},
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.email", "value": {"stringValue": unique_email}},
+                        {"key": "user.account_uuid", "value": {"stringValue": "test-uuid"}},
+                        {"key": "session.id", "value": {"stringValue": "session-123"}},
+                        {"key": "model", "value": {"stringValue": "claude-opus-4-6"}},
+                        {"key": "input_tokens", "value": {"stringValue": "100"}},
+                        {"key": "output_tokens", "value": {"stringValue": "50"}},
+                        {"key": "cache_read_tokens", "value": {"stringValue": "10"}},
+                        {"key": "cache_creation_tokens", "value": {"stringValue": "5"}},
+                        {"key": "cost_usd", "value": {"stringValue": "0.01"}},
+                        {"key": "duration_ms", "value": {"stringValue": "2000"}},
+                        {"key": "event.timestamp", "value": {"stringValue": "2026-04-10T12:00:00Z"}},
+                        {"key": "organization.id", "value": {"stringValue": "org-123"}},
+                        {"key": "prompt.id", "value": {"stringValue": "prompt-456"}},
+                    ]
+                }]
+            }]
+        }]
+    }
+
+    response = client.post("/v1/logs", json=payload)
+    assert response.status_code == 200
+    assert response.json()["events_processed"] == 1
+
+    # Check various leaderboards - find our user in the results
+    response = client.get("/api/leaderboard?sort=tokens")
+    data = response.json()
+    users = [u for u in data["data"] if u["email"] == unique_email]
+    assert len(users) == 1
+    assert users[0]["total_tokens"] == 150
+
+    response = client.get("/api/leaderboard?sort=time")
+    data = response.json()
+    users = [u for u in data["data"] if u["email"] == unique_email]
+    assert len(users) == 1
+    assert users[0]["total_duration_ms"] == 2000
+
+    response = client.get("/api/leaderboard?sort=models")
+    data = response.json()
+    users = [u for u in data["data"] if u["email"] == unique_email]
+    assert len(users) == 1
+    assert users[0]["favorite_model"] == "claude-opus-4-6"

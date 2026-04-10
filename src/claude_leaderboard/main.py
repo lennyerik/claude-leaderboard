@@ -5,13 +5,36 @@ from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, Request, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from claude_leaderboard.database import init_db, upsert_usage, get_leaderboard
+from claude_leaderboard.database import (
+    init_db,
+    insert_request,
+    get_leaderboard_tokens,
+    get_leaderboard_cost,
+    get_leaderboard_time,
+    get_leaderboard_io_ratio,
+    get_leaderboard_efficiency,
+    get_leaderboard_streak,
+    get_leaderboard_session,
+    get_favorite_models,
+)
 from claude_leaderboard.otlp_parser import parse_otlp_logs, extract_api_request_events
 
 # Configuration
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./claude_leaderboard.db")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# Leaderboard types and their display info
+LEADERBOARDS = {
+    "tokens": {"title": "Token Usage", "func": get_leaderboard_tokens},
+    "cost": {"title": "Total Cost", "func": get_leaderboard_cost},
+    "time": {"title": "Time Spent", "func": get_leaderboard_time},
+    "io_ratio": {"title": "I/O Ratio (Chatty)", "func": get_leaderboard_io_ratio},
+    "efficiency": {"title": "Efficiency (Concise)", "func": get_leaderboard_efficiency},
+    "streak": {"title": "Longest Streak", "func": get_leaderboard_streak},
+    "session": {"title": "Longest Session", "func": get_leaderboard_session},
+    "models": {"title": "Favorite Models", "func": get_favorite_models},
+}
 
 
 @asynccontextmanager
@@ -75,15 +98,21 @@ async def receive_otlp_logs(request: Request, db=Depends(get_db)):
     # Store in database
     for event in api_events:
         if event.get("user_email"):
-            upsert_usage(
+            insert_request(
                 db,
                 email=event["user_email"],
-                account_uuid=event.get("account_uuid", ""),
+                session_id=event.get("session_id", ""),
+                model=event.get("model", ""),
                 input_tokens=event.get("input_tokens", 0),
                 output_tokens=event.get("output_tokens", 0),
                 cache_read_tokens=event.get("cache_read_tokens", 0),
                 cache_creation_tokens=event.get("cache_creation_tokens", 0),
                 cost_usd=event.get("cost_usd", 0.0),
+                duration_ms=event.get("duration_ms", 0),
+                timestamp=event.get("timestamp", ""),
+                account_uuid=event.get("account_uuid", ""),
+                organization_id=event.get("organization_id", ""),
+                prompt_id=event.get("prompt_id", ""),
             )
 
     return {"success": True, "events_processed": len(api_events)}
@@ -91,38 +120,35 @@ async def receive_otlp_logs(request: Request, db=Depends(get_db)):
 
 @app.get("/api/leaderboard")
 async def api_leaderboard(
-    sort: str = Query(default="total_tokens", description="Sort column"),
-    db = Depends(get_db),
+    sort: str = Query(default="tokens", description="Leaderboard type"),
+    db=Depends(get_db),
 ):
     """Get leaderboard data as JSON."""
-    valid_sort = {"total_tokens", "total_cost", "prompt_count"}
-    if sort not in valid_sort:
-        sort = "total_tokens"
-
-    employees = get_leaderboard(db, sort_by=sort)
+    leaderboard_info = LEADERBOARDS.get(sort, LEADERBOARDS["tokens"])
+    data = leaderboard_info["func"](db)
 
     return {
-        "employees": employees,
-        "sort_by": sort,
-        "count": len(employees),
+        "leaderboard": sort,
+        "title": leaderboard_info["title"],
+        "data": data,
+        "count": len(data),
     }
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
 async def leaderboard_page(
     request: Request,
-    sort: str = Query(default="total_tokens"),
-    db = Depends(get_db),
+    sort: str = Query(default="tokens"),
+    db=Depends(get_db),
 ):
     """Render leaderboard HTML page."""
-    valid_sort = {"total_tokens", "total_cost", "prompt_count"}
-    if sort not in valid_sort:
-        sort = "total_tokens"
+    if sort not in LEADERBOARDS:
+        sort = "tokens"
 
-    employees = get_leaderboard(db, sort_by=sort)
+    leaderboard_info = LEADERBOARDS[sort]
+    data = leaderboard_info["func"](db)
 
-    # Build simple HTML
-    html = build_leaderboard_html(employees, sort)
+    html = build_leaderboard_html(data, sort, LEADERBOARDS)
     return HTMLResponse(content=html)
 
 
@@ -132,37 +158,21 @@ async def root():
     return RedirectResponse(url="/leaderboard", status_code=307)
 
 
-def build_leaderboard_html(employees: list[dict], current_sort: str) -> str:
-    """Build simple HTML for leaderboard."""
-    sort_options = [
-        ("total_tokens", "Tokens"),
-        ("total_cost", "Cost ($)"),
-        ("prompt_count", "Activity"),
-    ]
+def build_leaderboard_html(data: list[dict], current_sort: str, leaderboards: dict) -> str:
+    """Build HTML for leaderboard with tabs."""
 
-    # Build sort buttons
-    sort_buttons = []
-    for sort_key, label in sort_options:
-        if sort_key == current_sort:
-            sort_buttons.append(f'<strong>{label}</strong>')
+    # Build tab navigation
+    tabs = []
+    for key, info in leaderboards.items():
+        if key == current_sort:
+            tabs.append(f'<li class="active"><a href="/leaderboard?sort={key}">{info["title"]}</a></li>')
         else:
-            sort_buttons.append(f'<a href="/leaderboard?sort={sort_key}">{label}</a>')
+            tabs.append(f'<li><a href="/leaderboard?sort={key}">{info["title"]}</a></li>')
 
-    # Build table rows
-    rows = []
-    for i, emp in enumerate(employees, 1):
-        rows.append(f"""
-        <tr>
-            <td>{i}</td>
-            <td>{emp['email']}</td>
-            <td>{emp['total_tokens']:,}</td>
-            <td>${emp['total_cost']:.4f}</td>
-            <td>{emp['prompt_count']}</td>
-        </tr>
-        """
-        )
+    tabs_html = "".join(tabs)
 
-    rows_html = "".join(rows) if rows else '<tr><td colspan="5">No data yet</td></tr>'
+    # Build table based on leaderboard type
+    table_html = build_table_html(data, current_sort)
 
     return f"""<!DOCTYPE html>
 <html>
@@ -174,7 +184,7 @@ def build_leaderboard_html(employees: list[dict], current_sort: str) -> str:
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 800px;
+            max-width: 900px;
             margin: 40px auto;
             padding: 0 20px;
             background: #f5f5f5;
@@ -184,19 +194,34 @@ def build_leaderboard_html(employees: list[dict], current_sort: str) -> str:
             border-bottom: 2px solid #4CAF50;
             padding-bottom: 10px;
         }}
-        .sort-links {{
+        .tabs {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
             margin: 20px 0;
             padding: 10px;
             background: white;
             border-radius: 4px;
+            list-style: none;
         }}
-        .sort-links a {{
-            margin-right: 15px;
-            color: #2196F3;
+        .tabs li {{
+            margin: 0;
+        }}
+        .tabs a {{
+            display: block;
+            padding: 8px 16px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            color: #333;
             text-decoration: none;
+            font-size: 14px;
         }}
-        .sort-links a:hover {{
-            text-decoration: underline;
+        .tabs a:hover {{
+            background: #d0d0d0;
+        }}
+        .tabs li.active a {{
+            background: #4CAF50;
+            color: white;
         }}
         table {{
             width: 100%;
@@ -225,27 +250,193 @@ def build_leaderboard_html(employees: list[dict], current_sort: str) -> str:
     </style>
 </head>
 <body>
-    <h1>Claude Code Usage Leaderboard</h1>
-    <div class="sort-links">
-        Sort by: {" | ".join(sort_buttons)}
-    </div>
-    <table>
-        <thead>
-            <tr>
-                <th>Rank</th>
-                <th>Employee</th>
-                <th>Total Tokens</th>
-                <th>Total Cost</th>
-                <th>API Requests</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows_html}
-        </tbody>
-    </table>
+    <h1>Claude Code Leaderboard</h1>
+    <ul class="tabs">
+        {tabs_html}
+    </ul>
+    {table_html}
     <p class="auto-refresh">Auto-refreshes every 30 seconds</p>
 </body>
 </html>"""
+
+
+def build_table_html(data: list[dict], sort_type: str) -> str:
+    """Build table HTML based on leaderboard type."""
+
+    if sort_type == "tokens":
+        return build_tokens_table(data)
+    elif sort_type == "cost":
+        return build_cost_table(data)
+    elif sort_type == "time":
+        return build_time_table(data)
+    elif sort_type == "io_ratio":
+        return build_io_ratio_table(data, "I/O Ratio (Chatty users)")
+    elif sort_type == "efficiency":
+        return build_io_ratio_table(data, "Efficiency (Concise users)")
+    elif sort_type == "streak":
+        return build_streak_table(data)
+    elif sort_type == "session":
+        return build_session_table(data)
+    elif sort_type == "models":
+        return build_models_table(data)
+    else:
+        return build_generic_table(data)
+
+
+def build_tokens_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['total_tokens']:,}</td>
+            <td>${row['total_cost']:.4f}</td>
+            <td>{row['request_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="5">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Total Tokens</th><th>Total Cost</th><th>Requests</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_cost_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>${row['total_cost']:.4f}</td>
+            <td>{row['total_tokens']:,}</td>
+            <td>{row['request_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="5">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Total Cost</th><th>Total Tokens</th><th>Requests</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_time_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['total_duration']}</td>
+            <td>{row['request_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Total Time</th><th>Requests</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_io_ratio_table(data: list[dict], title: str) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['io_ratio']}</td>
+            <td>{row['total_input']:,}</td>
+            <td>{row['total_output']:,}</td>
+            <td>{row['request_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="6">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>I/O Ratio</th><th>Input Tokens</th><th>Output Tokens</th><th>Requests</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_streak_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['longest_streak']} days</td>
+            <td>{row['total_days']} days</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Longest Streak</th><th>Total Days Active</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_session_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['session_duration']}</td>
+            <td>{row['request_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Longest Session</th><th>Requests in Session</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_models_table(data: list[dict]) -> str:
+    rows = []
+    for i, row in enumerate(data, 1):
+        rows.append(f"""
+        <tr>
+            <td>{i}</td>
+            <td>{row['email']}</td>
+            <td>{row['favorite_model']}</td>
+            <td>{row['model_count']}</td>
+        </tr>
+        """)
+    rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
+
+    return f"""<table>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Favorite Model</th><th>Uses</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
+
+
+def build_generic_table(data: list[dict]) -> str:
+    if not data:
+        return '<table><tbody><tr><td>No data yet</td></tr></tbody></table>'
+
+    headers = list(data[0].keys())
+    header_row = "".join(f"<th>{h}</th>" for h in headers)
+
+    rows = []
+    for row in data:
+        cells = "".join(f"<td>{row.get(h, '')}</td>" for h in headers)
+        rows.append(f"<tr>{cells}</tr>")
+    rows_html = "".join(rows)
+
+    return f"""<table>
+        <thead><tr>{header_row}</tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>"""
 
 
 if __name__ == "__main__":

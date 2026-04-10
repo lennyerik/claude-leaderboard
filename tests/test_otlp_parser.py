@@ -181,15 +181,24 @@ def test_parse_real_claude_code_payload():
     # user_prompt events are filtered out at parse time (only api_request kept)
     assert len(result) == 1
 
-    # api_request event is parsed
-    assert result[0]["event_name"] == "api_request"
-    assert result[0]["user_email"] == "user@example.com"
-    assert result[0]["account_uuid"] == "37c434a0-c19e-4622-a6e3-48cf1f49d020"
-    assert result[0]["input_tokens"] == 10
-    assert result[0]["output_tokens"] == 100
-    assert result[0]["cache_read_tokens"] == 43997
-    assert result[0]["cache_creation_tokens"] == 19
-    assert result[0]["cost_usd"] == 0.004933450000000001
+    # api_request event is parsed with all new fields
+    event = result[0]
+    assert event["event_name"] == "api_request"
+    assert event["user_email"] == "user@example.com"
+    assert event["account_uuid"] == "37c434a0-c19e-4622-a6e3-48cf1f49d020"
+    assert event["input_tokens"] == 10
+    assert event["output_tokens"] == 100
+    assert event["cache_read_tokens"] == 43997
+    assert event["cache_creation_tokens"] == 19
+    assert event["cost_usd"] == 0.004933450000000001
+
+    # New fields
+    assert event["session_id"] == "29d083fa-fdd2-4031-9259-cfae09b04e2d"
+    assert event["model"] == "claude-haiku-4-5-20251001"
+    assert event["duration_ms"] == 2967
+    assert event["timestamp"] == "2026-04-10T19:06:59.553Z"
+    assert event["organization_id"] == "5f60b26b-c53d-4e0f-8e74-f2c2895bbd9b"
+    assert event["prompt_id"] == "1f8abf8a-2e3f-4d0b-ad61-dd8ab7796e3a"
 
     # Test filtering (already filtered but ensures consistency)
     api_events = extract_api_request_events(result)

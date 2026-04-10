@@ -24,11 +24,17 @@ def parse_otlp_logs(data: str) -> list[dict]:
     - event_name
     - user_email
     - account_uuid
+    - session_id
+    - model
     - input_tokens
     - output_tokens
     - cache_read_tokens
     - cache_creation_tokens
     - cost_usd
+    - duration_ms
+    - timestamp
+    - organization_id
+    - prompt_id
     """
     try:
         payload = json.loads(data)
@@ -100,11 +106,17 @@ def _parse_log_record(record: dict) -> dict | None:
         "event_name": event_name,
         "user_email": user_email,
         "account_uuid": attr_map.get("user.account_uuid", ""),
+        "session_id": attr_map.get("session.id", ""),
+        "model": attr_map.get("model", ""),
         "input_tokens": to_int(attr_map.get("input_tokens")),
         "output_tokens": to_int(attr_map.get("output_tokens")),
         "cache_read_tokens": to_int(attr_map.get("cache_read_tokens")),
         "cache_creation_tokens": to_int(attr_map.get("cache_creation_tokens")),
         "cost_usd": to_float(attr_map.get("cost_usd")),
+        "duration_ms": to_int(attr_map.get("duration_ms")),
+        "timestamp": attr_map.get("event.timestamp", ""),
+        "organization_id": attr_map.get("organization.id", ""),
+        "prompt_id": attr_map.get("prompt.id", ""),
     }
 
 
