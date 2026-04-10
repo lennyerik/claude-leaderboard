@@ -16,3 +16,5 @@ htmlcov/
 .tox/
 .venv/
 *.db
+tests/
+docs/
