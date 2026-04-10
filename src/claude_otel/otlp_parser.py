@@ -61,15 +61,43 @@ def _parse_log_record(record: dict) -> dict | None:
     if event_name != "claude_code.api_request":
         return None
 
+    # Helper to convert value to int (handles strings from OTLP)
+    def to_int(val, default=0):
+        if val is None:
+            return default
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str):
+            try:
+                return int(val)
+            except ValueError:
+                return default
+        return default
+
+    # Helper to convert value to float (handles strings from OTLP)
+    def to_float(val, default=0.0):
+        if val is None:
+            return default
+        if isinstance(val, float):
+            return val
+        if isinstance(val, int):
+            return float(val)
+        if isinstance(val, str):
+            try:
+                return float(val)
+            except ValueError:
+                return default
+        return default
+
     return {
         "event_name": event_name,
         "user_email": attr_map.get("user.email", ""),
         "account_uuid": attr_map.get("user.account_uuid", ""),
-        "input_tokens": attr_map.get("input_tokens", 0) or 0,
-        "output_tokens": attr_map.get("output_tokens", 0) or 0,
-        "cache_read_tokens": attr_map.get("cache_read_tokens", 0) or 0,
-        "cache_creation_tokens": attr_map.get("cache_creation_tokens", 0) or 0,
-        "cost_usd": attr_map.get("cost_usd", 0.0) or 0.0,
+        "input_tokens": to_int(attr_map.get("input_tokens")),
+        "output_tokens": to_int(attr_map.get("output_tokens")),
+        "cache_read_tokens": to_int(attr_map.get("cache_read_tokens")),
+        "cache_creation_tokens": to_int(attr_map.get("cache_creation_tokens")),
+        "cost_usd": to_float(attr_map.get("cost_usd")),
     }
 
 

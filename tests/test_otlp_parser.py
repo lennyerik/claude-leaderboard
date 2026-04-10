@@ -73,3 +73,33 @@ def test_parse_handles_missing_attributes():
     assert result[0]["input_tokens"] == 0
     assert result[0]["output_tokens"] == 0
     assert result[0]["cost_usd"] == 0.0
+
+
+def test_parse_handles_string_values():
+    """Test parsing handles string values for numeric fields (Claude Code format)."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "claude_code.api_request"}},
+                        {"key": "user.email", "value": {"stringValue": "lenny@example.com"}},
+                        {"key": "user.account_uuid", "value": {"stringValue": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}},
+                        {"key": "input_tokens", "value": {"stringValue": "10"}},
+                        {"key": "output_tokens", "value": {"stringValue": "68"}},
+                        {"key": "cache_read_tokens", "value": {"stringValue": "43931"}},
+                        {"key": "cache_creation_tokens", "value": {"stringValue": "22"}},
+                        {"key": "cost_usd", "value": {"stringValue": "0.0047706"}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(json.dumps(payload))
+    assert len(result) == 1
+    assert result[0]["user_email"] == "lenny@example.com"
+    assert result[0]["input_tokens"] == 10
+    assert result[0]["output_tokens"] == 68
+    assert result[0]["cache_read_tokens"] == 43931
+    assert result[0]["cache_creation_tokens"] == 22
+    assert result[0]["cost_usd"] == 0.0047706
