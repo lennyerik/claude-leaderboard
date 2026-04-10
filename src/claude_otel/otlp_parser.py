@@ -55,10 +55,12 @@ def _parse_log_record(record: dict) -> dict | None:
     attributes = record.get("attributes", [])
     attr_map = {attr["key"]: _get_attr_value(attr) for attr in attributes}
 
+    # Check event.name attribute (can be "api_request" or "claude_code.api_request")
     event_name = attr_map.get("event.name", "")
 
     # We only care about api_request events for token tracking
-    if event_name != "claude_code.api_request":
+    # Check both "api_request" (from attribute) and "claude_code.api_request" (from body/full name)
+    if event_name not in ("api_request", "claude_code.api_request"):
         return None
 
     # Helper to convert value to int (handles strings from OTLP)
@@ -103,4 +105,4 @@ def _parse_log_record(record: dict) -> dict | None:
 
 def extract_api_request_events(events: list[dict]) -> list[dict]:
     """Filter events to only include api_request events."""
-    return [e for e in events if e.get("event_name") == "claude_code.api_request"]
+    return [e for e in events if e.get("event_name") in ("api_request", "claude_code.api_request")]

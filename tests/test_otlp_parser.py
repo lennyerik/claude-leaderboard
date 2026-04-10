@@ -103,3 +103,45 @@ def test_parse_handles_string_values():
     assert result[0]["cache_read_tokens"] == 43931
     assert result[0]["cache_creation_tokens"] == 22
     assert result[0]["cost_usd"] == 0.0047706
+
+
+def test_parse_short_event_name():
+    """Test parsing handles 'api_request' (without claude_code. prefix) from event.name attribute."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "timeUnixNano": "1775840982418000000",
+                    "observedTimeUnixNano": "1775840982418000000",
+                    "body": {"stringValue": "claude_code.api_request"},
+                    "attributes": [
+                        {"key": "user.id", "value": {"stringValue": "anonymized-device-id"}},
+                        {"key": "user.email", "value": {"stringValue": "lenny@example.com"}},
+                        {"key": "user.account_uuid", "value": {"stringValue": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"}},
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},  # Short name!
+                        {"key": "input_tokens", "value": {"stringValue": "10"}},
+                        {"key": "output_tokens", "value": {"stringValue": "68"}},
+                        {"key": "cache_read_tokens", "value": {"stringValue": "43931"}},
+                        {"key": "cache_creation_tokens", "value": {"stringValue": "22"}},
+                        {"key": "cost_usd", "value": {"stringValue": "0.0047706"}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(json.dumps(payload))
+    assert len(result) == 1
+    assert result[0]["event_name"] == "api_request"  # Should preserve short name
+    assert result[0]["user_email"] == "lenny@example.com"
+    assert result[0]["input_tokens"] == 10
+
+    # Test extract_api_request_events works with both formats
+    events = [
+        {"event_name": "api_request", "user_email": "a@example.com"},
+        {"event_name": "user_prompt", "user_email": "b@example.com"},
+        {"event_name": "claude_code.api_request", "user_email": "c@example.com"},
+    ]
+    filtered = extract_api_request_events(events)
+    assert len(filtered) == 2
+    assert filtered[0]["user_email"] == "a@example.com"
+    assert filtered[1]["user_email"] == "c@example.com"
