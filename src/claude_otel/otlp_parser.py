@@ -91,9 +91,14 @@ def _parse_log_record(record: dict) -> dict | None:
                 return default
         return default
 
+    # Get user identifier - prefer email, fall back to user.id (anonymous device ID)
+    user_email = attr_map.get("user.email", "")
+    if not user_email:
+        user_email = attr_map.get("user.id", "anonymous")
+
     return {
         "event_name": event_name,
-        "user_email": attr_map.get("user.email", ""),
+        "user_email": user_email,
         "account_uuid": attr_map.get("user.account_uuid", ""),
         "input_tokens": to_int(attr_map.get("input_tokens")),
         "output_tokens": to_int(attr_map.get("output_tokens")),
