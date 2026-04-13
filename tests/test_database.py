@@ -219,8 +219,46 @@ def test_favorite_models():
     conn.close()
 
 
+def test_leaderboard_efficiency():
+    """Test efficiency leaderboard is sorted ASC by io_ratio."""
+    conn = sqlite3.connect(TEST_DB)
+    init_db(conn)
+
+    # High ratio user (verbose)
+    insert_request(conn, "verbose@example.com", "s1", "haiku", 500, 10, 0, 0, 0.001, 1000, "2026-04-10T10:00:00Z")
+    # Low ratio user (efficient)
+    insert_request(conn, "efficient@example.com", "s2", "haiku", 10, 500, 0, 0, 0.001, 1000, "2026-04-10T11:00:00Z")
+
+    leaderboard = get_leaderboard_efficiency(conn)
+    assert leaderboard[0]["email"] == "efficient@example.com"
+    assert leaderboard[0]["io_ratio"] == 0.02  # 10/500
+    assert leaderboard[1]["email"] == "verbose@example.com"
+    assert leaderboard[1]["io_ratio"] == 50.0  # 500/10
+    conn.close()
+
+
+def test_favorite_models_sorted_by_count():
+    """Test that favorite models leaderboard is sorted by model_count descending."""
+    conn = sqlite3.connect(TEST_DB)
+    init_db(conn)
+
+    # Alice uses model 3 times
+    for _ in range(3):
+        insert_request(conn, "alice@example.com", "s1", "opus", 10, 10, 0, 0, 0.01, 1000, "2026-04-10T10:00:00Z")
+    # Bob uses model 1 time
+    insert_request(conn, "bob@example.com", "s2", "haiku", 10, 10, 0, 0, 0.001, 1000, "2026-04-10T11:00:00Z")
+
+    favorites = get_favorite_models(conn)
+    assert favorites[0]["email"] == "alice@example.com"
+    assert favorites[0]["model_count"] == 3
+    assert favorites[1]["email"] == "bob@example.com"
+    assert favorites[1]["model_count"] == 1
+    conn.close()
+
+
 def test_format_duration():
     """Test duration formatting."""
+    assert format_duration(0) == "0ms"
     assert format_duration(500) == "500ms"
     assert format_duration(1000) == "1s"
     assert format_duration(1500) == "1s 500ms"

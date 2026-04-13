@@ -11,30 +11,25 @@ TEST_DB_PATH = "/tmp/test_claude_leaderboard_main.db"
 def override_get_db():
     """Override dependency to use test database."""
     conn = sqlite3.connect(TEST_DB_PATH, check_same_thread=False)
-    init_db(conn)
     try:
         yield conn
     finally:
         conn.close()
 
 
-# Clean up any existing test db and setup
 @pytest.fixture(autouse=True)
 def setup_test_db():
     if os.path.exists(TEST_DB_PATH):
         os.remove(TEST_DB_PATH)
-    # Initialize test database
     conn = sqlite3.connect(TEST_DB_PATH)
     init_db(conn)
     conn.close()
+    app.dependency_overrides[get_db] = override_get_db
     yield
-    # Cleanup after tests
+    app.dependency_overrides.pop(get_db, None)
     if os.path.exists(TEST_DB_PATH):
         os.remove(TEST_DB_PATH)
 
-
-# Override the dependency
-app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
@@ -141,6 +136,100 @@ def test_api_leaderboard_with_sort():
     assert emails == ["b@example.com", "a@example.com"]
 
 
+def test_api_leaderboard_invalid_sort_defaults_to_tokens():
+    """Test that invalid sort parameter falls back to tokens."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "claude_code.api_request"}},
+                        {"key": "user.email", "value": {"stringValue": "test@example.com"}},
+                        {"key": "input_tokens", "value": {"intValue": 100}},
+                        {"key": "output_tokens", "value": {"intValue": 50}},
+                        {"key": "cost_usd", "value": {"doubleValue": 0.01}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    client.post("/v1/logs", json=payload)
+
+    response = client.get("/api/leaderboard?sort=invalid_sort")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["leaderboard"] == "invalid_sort"
+    assert data["title"] == "Token Usage"  # Falls back to tokens
+    assert len(data["data"]) == 1
+
+
+def test_otlp_logs_malformed_body():
+    """Test that malformed (non-JSON) body returns 0 events processed."""
+    response = client.post(
+        "/v1/logs",
+        content=b"this is not json",
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json()["events_processed"] == 0
+
+
+def test_otlp_logs_skips_events_without_email():
+    """Test that events without user_email are not stored."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        # user.id present but no user.email — parser falls back to user.id
+                        {"key": "user.id", "value": {"stringValue": "device-abc"}},
+                        {"key": "input_tokens", "value": {"intValue": 100}},
+                        {"key": "output_tokens", "value": {"intValue": 50}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    response = client.post("/v1/logs", json=payload)
+    assert response.status_code == 200
+    # The event is parsed with user_email="device-abc" (fallback to user.id)
+    assert response.json()["events_processed"] == 1
+
+    response = client.get("/api/leaderboard?sort=tokens")
+    data = response.json()
+    assert len(data["data"]) == 1
+    assert data["data"][0]["email"] == "device-abc"
+
+
+def test_duplicate_events_insert_separately():
+    """Test that sending the same event twice creates two rows."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.email", "value": {"stringValue": "dup@example.com"}},
+                        {"key": "input_tokens", "value": {"intValue": 100}},
+                        {"key": "output_tokens", "value": {"intValue": 50}},
+                        {"key": "cost_usd", "value": {"doubleValue": 0.01}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    client.post("/v1/logs", json=payload)
+    client.post("/v1/logs", json=payload)
+
+    response = client.get("/api/leaderboard?sort=tokens")
+    data = response.json()
+    user = data["data"][0]
+    assert user["email"] == "dup@example.com"
+    assert user["total_tokens"] == 300  # 150 * 2
+    assert user["request_count"] == 2
+
+
 def test_leaderboard_html_endpoint():
     """Test leaderboard HTML endpoint returns HTML."""
     response = client.get("/leaderboard")
@@ -157,6 +246,33 @@ def test_leaderboard_html_with_different_tabs():
         response = client.get(f"/leaderboard?sort={tab}")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
+
+
+def test_leaderboard_html_escapes_email():
+    """Test that HTML leaderboard escapes user-controlled strings."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.email", "value": {"stringValue": "<script>alert(1)</script>@evil.com"}},
+                        {"key": "input_tokens", "value": {"intValue": 100}},
+                        {"key": "output_tokens", "value": {"intValue": 50}},
+                        {"key": "cost_usd", "value": {"doubleValue": 0.01}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    client.post("/v1/logs", json=payload)
+
+    response = client.get("/leaderboard?sort=tokens")
+    assert response.status_code == 200
+    # The raw script tag should NOT appear in the HTML
+    assert b"<script>alert(1)</script>" not in response.content
+    # The escaped version should appear
+    assert b"&lt;script&gt;" in response.content
 
 
 def test_root_redirects():

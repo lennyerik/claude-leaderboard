@@ -12,30 +12,25 @@ TEST_DB_PATH = "/tmp/test_claude_leaderboard_e2e.db"
 def override_get_db():
     """Override dependency to use test database."""
     conn = sqlite3.connect(TEST_DB_PATH, check_same_thread=False)
-    init_db(conn)
     try:
         yield conn
     finally:
         conn.close()
 
 
-# Clean up any existing test db and setup
 @pytest.fixture(autouse=True)
 def setup_test_db():
     if os.path.exists(TEST_DB_PATH):
         os.remove(TEST_DB_PATH)
-    # Initialize test database
     conn = sqlite3.connect(TEST_DB_PATH)
     init_db(conn)
     conn.close()
+    app.dependency_overrides[get_db] = override_get_db
     yield
-    # Cleanup after tests
+    app.dependency_overrides.pop(get_db, None)
     if os.path.exists(TEST_DB_PATH):
         os.remove(TEST_DB_PATH)
 
-
-# Override the dependency
-app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 

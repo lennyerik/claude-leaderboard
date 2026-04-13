@@ -1,6 +1,6 @@
 import json
 import pytest
-from claude_leaderboard.otlp_parser import parse_otlp_logs, extract_api_request_events
+from claude_leaderboard.otlp_parser import parse_otlp_logs
 
 
 def test_parse_empty_otlp_logs():
@@ -41,16 +41,42 @@ def test_parse_otlp_logs_with_api_request():
     assert result[0]["cost_usd"] == 0.25
 
 
-def test_extract_api_request_events_filters_by_event_name():
-    """Test that only claude_code.api_request events are extracted."""
-    events = [
-        {"event_name": "claude_code.api_request", "user_email": "a@example.com"},
-        {"event_name": "claude_code.user_prompt", "user_email": "a@example.com"},
-        {"event_name": "claude_code.api_request", "user_email": "b@example.com"},
-    ]
-    result = extract_api_request_events(events)
+def test_parse_filters_non_api_request_events():
+    """Test that only api_request events are returned by the parser."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [
+                    {
+                        "attributes": [
+                            {"key": "event.name", "value": {"stringValue": "claude_code.api_request"}},
+                            {"key": "user.email", "value": {"stringValue": "a@example.com"}},
+                            {"key": "input_tokens", "value": {"intValue": 10}},
+                            {"key": "output_tokens", "value": {"intValue": 5}},
+                        ]
+                    },
+                    {
+                        "attributes": [
+                            {"key": "event.name", "value": {"stringValue": "user_prompt"}},
+                            {"key": "user.email", "value": {"stringValue": "a@example.com"}},
+                        ]
+                    },
+                    {
+                        "attributes": [
+                            {"key": "event.name", "value": {"stringValue": "api_request"}},
+                            {"key": "user.email", "value": {"stringValue": "b@example.com"}},
+                            {"key": "input_tokens", "value": {"intValue": 20}},
+                            {"key": "output_tokens", "value": {"intValue": 10}},
+                        ]
+                    },
+                ]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(json.dumps(payload))
     assert len(result) == 2
-    assert all(e["event_name"] == "claude_code.api_request" for e in result)
+    assert result[0]["user_email"] == "a@example.com"
+    assert result[1]["user_email"] == "b@example.com"
 
 
 def test_parse_handles_missing_attributes():
@@ -200,11 +226,6 @@ def test_parse_real_claude_code_payload():
     assert event["organization_id"] == "5f60b26b-c53d-4e0f-8e74-f2c2895bbd9b"
     assert event["prompt_id"] == "1f8abf8a-2e3f-4d0b-ad61-dd8ab7796e3a"
 
-    # Test filtering (already filtered but ensures consistency)
-    api_events = extract_api_request_events(result)
-    assert len(api_events) == 1
-    assert api_events[0]["event_name"] == "api_request"
-
 
 def test_parse_short_event_name():
     """Test parsing handles 'api_request' (without claude_code. prefix) from event.name attribute."""
@@ -236,13 +257,71 @@ def test_parse_short_event_name():
     assert result[0]["user_email"] == "lenny@example.com"
     assert result[0]["input_tokens"] == 10
 
-    # Test extract_api_request_events works with both formats
-    events = [
-        {"event_name": "api_request", "user_email": "a@example.com"},
-        {"event_name": "user_prompt", "user_email": "b@example.com"},
-        {"event_name": "claude_code.api_request", "user_email": "c@example.com"},
-    ]
-    filtered = extract_api_request_events(events)
-    assert len(filtered) == 2
-    assert filtered[0]["user_email"] == "a@example.com"
-    assert filtered[1]["user_email"] == "c@example.com"
+
+def test_parse_accepts_dict_directly():
+    """Test that parse_otlp_logs accepts a dict (no JSON string needed)."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.email", "value": {"stringValue": "dict@example.com"}},
+                        {"key": "input_tokens", "value": {"intValue": 42}},
+                        {"key": "output_tokens", "value": {"intValue": 7}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(payload)  # Pass dict, not string
+    assert len(result) == 1
+    assert result[0]["user_email"] == "dict@example.com"
+    assert result[0]["input_tokens"] == 42
+
+
+def test_parse_invalid_json_returns_empty():
+    """Test that invalid JSON string returns empty list."""
+    result = parse_otlp_logs("not valid json {{{")
+    assert result == []
+
+
+def test_parse_user_id_fallback_when_no_email():
+    """Test that user.id is used when user.email is missing."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.id", "value": {"stringValue": "device-id-abc123"}},
+                        {"key": "input_tokens", "value": {"intValue": 10}},
+                        {"key": "output_tokens", "value": {"intValue": 5}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(json.dumps(payload))
+    assert len(result) == 1
+    assert result[0]["user_email"] == "device-id-abc123"
+
+
+def test_parse_anonymous_fallback_when_no_email_or_id():
+    """Test that 'anonymous' is used when both user.email and user.id are missing."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "input_tokens", "value": {"intValue": 10}},
+                        {"key": "output_tokens", "value": {"intValue": 5}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    result = parse_otlp_logs(json.dumps(payload))
+    assert len(result) == 1
+    assert result[0]["user_email"] == "anonymous"
