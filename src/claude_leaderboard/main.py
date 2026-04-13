@@ -165,9 +165,9 @@ def build_leaderboard_html(data: list[dict], current_sort: str, leaderboards: di
     tabs = []
     for key, info in leaderboards.items():
         if key == current_sort:
-            tabs.append(f'<li class="active"><a href="/leaderboard?sort={key}">{info["title"]}</a></li>')
+            tabs.append(f'<li class="active"><a href="leaderboard?sort={key}">{info["title"]}</a></li>')
         else:
-            tabs.append(f'<li><a href="/leaderboard?sort={key}">{info["title"]}</a></li>')
+            tabs.append(f'<li><a href="leaderboard?sort={key}">{info["title"]}</a></li>')
 
     tabs_html = "".join(tabs)
 
