@@ -18,7 +18,7 @@ from claude_leaderboard.database import (
     get_leaderboard_session,
     get_favorite_models,
 )
-from claude_leaderboard.otlp_parser import parse_otlp_logs, extract_api_request_events
+from claude_leaderboard.otlp_parser import parse_otlp_logs
 
 # Configuration
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./claude_leaderboard.db")
@@ -83,21 +83,13 @@ async def receive_otlp_logs(request: Request, db=Depends(get_db)):
     try:
         body = await request.json()
     except Exception:
-        body_text = await request.body()
-        body = body_text.decode("utf-8")
+        return {"success": True, "events_processed": 0}
 
-    # Parse the OTLP payload
-    if isinstance(body, str):
-        events = parse_otlp_logs(body)
-    else:
-        import json
-        events = parse_otlp_logs(json.dumps(body))
-
-    # Filter to only api_request events
-    api_events = extract_api_request_events(events)
+    # Parse the OTLP payload (accepts dict or str)
+    events = parse_otlp_logs(body)
 
     # Store in database
-    for event in api_events:
+    for event in events:
         if event.get("user_email"):
             insert_request(
                 db,
@@ -116,7 +108,7 @@ async def receive_otlp_logs(request: Request, db=Depends(get_db)):
                 prompt_id=event.get("prompt_id", ""),
             )
 
-    return {"success": True, "events_processed": len(api_events)}
+    return {"success": True, "events_processed": len(events)}
 
 
 @app.get("/api/leaderboard")

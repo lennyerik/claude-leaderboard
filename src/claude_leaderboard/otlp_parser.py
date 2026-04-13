@@ -17,7 +17,7 @@ def _get_attr_value(attr: dict) -> Any:
     return None
 
 
-def parse_otlp_logs(data: str) -> list[dict]:
+def parse_otlp_logs(data: str | dict) -> list[dict]:
     """Parse OTLP JSON logs payload and return list of events.
 
     Returns list of dicts with keys:
@@ -36,10 +36,13 @@ def parse_otlp_logs(data: str) -> list[dict]:
     - organization_id
     - prompt_id
     """
-    try:
-        payload = json.loads(data)
-    except json.JSONDecodeError:
-        return []
+    if isinstance(data, dict):
+        payload = data
+    else:
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError:
+            return []
 
     events = []
     resource_logs = payload.get("resourceLogs", [])
@@ -120,6 +123,3 @@ def _parse_log_record(record: dict) -> dict | None:
     }
 
 
-def extract_api_request_events(events: list[dict]) -> list[dict]:
-    """Filter events to only include api_request events."""
-    return [e for e in events if e.get("event_name") in ("api_request", "claude_code.api_request")]
