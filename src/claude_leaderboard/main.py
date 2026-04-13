@@ -2,6 +2,7 @@
 import os
 import sqlite3
 from contextlib import asynccontextmanager, contextmanager
+from html import escape as html_escape
 from fastapi import FastAPI, Request, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -289,7 +290,7 @@ def build_tokens_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>{row['total_tokens']:,}</td>
             <td>${row['total_cost']:.4f}</td>
             <td>{row['request_count']}</td>
@@ -309,7 +310,7 @@ def build_cost_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>${row['total_cost']:.4f}</td>
             <td>{row['total_tokens']:,}</td>
             <td>{row['request_count']}</td>
@@ -329,7 +330,7 @@ def build_time_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>{row['total_duration']}</td>
             <td>{row['request_count']}</td>
         </tr>
@@ -348,7 +349,7 @@ def build_io_ratio_table(data: list[dict], title: str) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>{row['io_ratio']}</td>
             <td>{row['total_input']:,}</td>
             <td>{row['total_output']:,}</td>
@@ -369,7 +370,7 @@ def build_streak_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>{row['longest_streak']} days</td>
             <td>{row['total_days']} days</td>
         </tr>
@@ -388,7 +389,7 @@ def build_session_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
+            <td>{html_escape(row['email'])}</td>
             <td>{row['session_duration']}</td>
             <td>{row['request_count']}</td>
         </tr>
@@ -407,8 +408,8 @@ def build_models_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{row['email']}</td>
-            <td>{row['favorite_model']}</td>
+            <td>{html_escape(row['email'])}</td>
+            <td>{html_escape(row['favorite_model'])}</td>
             <td>{row['model_count']}</td>
         </tr>
         """)
@@ -425,11 +426,11 @@ def build_generic_table(data: list[dict]) -> str:
         return '<table><tbody><tr><td>No data yet</td></tr></tbody></table>'
 
     headers = list(data[0].keys())
-    header_row = "".join(f"<th>{h}</th>" for h in headers)
+    header_row = "".join(f"<th>{html_escape(str(h))}</th>" for h in headers)
 
     rows = []
     for row in data:
-        cells = "".join(f"<td>{row.get(h, '')}</td>" for h in headers)
+        cells = "".join(f"<td>{html_escape(str(row.get(h, '')))}</td>" for h in headers)
         rows.append(f"<tr>{cells}</tr>")
     rows_html = "".join(rows)
 
