@@ -249,7 +249,9 @@ def get_favorite_models(conn: sqlite3.Connection) -> list[dict]:
         if email not in user_models:
             user_models[email] = {"email": email, "favorite_model": model, "model_count": count}
 
-    return list(user_models.values())
+    result = list(user_models.values())
+    result.sort(key=lambda x: x["model_count"], reverse=True)
+    return result
 
 
 def get_leaderboard_streak(conn: sqlite3.Connection) -> list[dict]:
@@ -339,21 +341,3 @@ def get_leaderboard_session(conn: sqlite3.Connection) -> list[dict]:
     return sessions
 
 
-def get_leaderboard(
-    conn: sqlite3.Connection,
-    sort_by: str = "tokens",
-) -> list[dict]:
-    """Get leaderboard data by type (deprecated, use specific leaderboard functions)."""
-    leaderboard_funcs = {
-        "tokens": get_leaderboard_tokens,
-        "cost": get_leaderboard_cost,
-        "time": get_leaderboard_time,
-        "io_ratio": get_leaderboard_io_ratio,
-        "efficiency": get_leaderboard_efficiency,
-        "streak": get_leaderboard_streak,
-        "session": get_leaderboard_session,
-        "models": get_favorite_models,
-    }
-
-    func = leaderboard_funcs.get(sort_by, get_leaderboard_tokens)
-    return func(conn)
