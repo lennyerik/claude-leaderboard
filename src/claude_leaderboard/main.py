@@ -1,22 +1,24 @@
 """FastAPI application for Claude OTel leaderboard."""
+
 import os
 import sqlite3
 from contextlib import asynccontextmanager, contextmanager
 from html import escape as html_escape
-from fastapi import FastAPI, Request, Depends, Query
+
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from claude_leaderboard.database import (
+    get_favorite_models,
+    get_leaderboard_cost,
+    get_leaderboard_efficiency,
+    get_leaderboard_io_ratio,
+    get_leaderboard_session,
+    get_leaderboard_streak,
+    get_leaderboard_time,
+    get_leaderboard_tokens,
     init_db,
     insert_request,
-    get_leaderboard_tokens,
-    get_leaderboard_cost,
-    get_leaderboard_time,
-    get_leaderboard_io_ratio,
-    get_leaderboard_efficiency,
-    get_leaderboard_streak,
-    get_leaderboard_session,
-    get_favorite_models,
 )
 from claude_leaderboard.otlp_parser import parse_otlp_logs
 
@@ -114,11 +116,15 @@ async def receive_otlp_logs(request: Request, db=Depends(get_db)):
 @app.get("/api/leaderboard")
 async def api_leaderboard(
     sort: str = Query(default="tokens", description="Leaderboard type"),
+    all: bool = Query(
+        default=False,
+        description="Include anonymous tokens (e.g. code-review workers) without an email",
+    ),
     db=Depends(get_db),
 ):
     """Get leaderboard data as JSON."""
     leaderboard_info = LEADERBOARDS.get(sort, LEADERBOARDS["tokens"])
-    data = leaderboard_info["func"](db)
+    data = leaderboard_info["func"](db, include_invalid=all)
 
     return {
         "leaderboard": sort,
@@ -132,6 +138,7 @@ async def api_leaderboard(
 async def leaderboard_page(
     request: Request,
     sort: str = Query(default="tokens"),
+    all: bool = Query(default=False),
     db=Depends(get_db),
 ):
     """Render leaderboard HTML page."""
@@ -139,9 +146,9 @@ async def leaderboard_page(
         sort = "tokens"
 
     leaderboard_info = LEADERBOARDS[sort]
-    data = leaderboard_info["func"](db)
+    data = leaderboard_info["func"](db, include_invalid=all)
 
-    html = build_leaderboard_html(data, sort, LEADERBOARDS)
+    html = build_leaderboard_html(data, sort, LEADERBOARDS, include_invalid=all)
     return HTMLResponse(content=html)
 
 
@@ -151,18 +158,35 @@ async def root():
     return RedirectResponse(url="/leaderboard", status_code=307)
 
 
-def build_leaderboard_html(data: list[dict], current_sort: str, leaderboards: dict) -> str:
+def build_leaderboard_html(
+    data: list[dict],
+    current_sort: str,
+    leaderboards: dict,
+    include_invalid: bool = False,
+) -> str:
     """Build HTML for leaderboard with tabs."""
+
+    # Preserve the all=true flag across tab navigation
+    suffix = "&all=true" if include_invalid else ""
 
     # Build tab navigation
     tabs = []
     for key, info in leaderboards.items():
+        href = f"leaderboard?sort={key}{suffix}"
         if key == current_sort:
-            tabs.append(f'<li class="active"><a href="leaderboard?sort={key}">{info["title"]}</a></li>')
+            tabs.append(f'<li class="active"><a href="{href}">{info["title"]}</a></li>')
         else:
-            tabs.append(f'<li><a href="leaderboard?sort={key}">{info["title"]}</a></li>')
+            tabs.append(f'<li><a href="{href}">{info["title"]}</a></li>')
 
     tabs_html = "".join(tabs)
+
+    # Toggle link to flip between filtered (default) and unfiltered (all=true)
+    if include_invalid:
+        toggle_link = f'<a href="leaderboard?sort={current_sort}">Hide anonymous tokens</a>'
+    else:
+        toggle_link = (
+            f'<a href="leaderboard?sort={current_sort}&all=true">Show anonymous tokens</a>'
+        )
 
     # Build table based on leaderboard type
     table_html = build_table_html(data, current_sort)
@@ -235,10 +259,17 @@ def build_leaderboard_html(data: list[dict], current_sort: str, leaderboards: di
         tr:hover {{
             background: #f5f5f5;
         }}
-        .auto-refresh {{
+        .footer {{
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 16px;
             color: #666;
             font-size: 14px;
             margin-top: 10px;
+        }}
+        .footer a {{
+            color: #4CAF50;
         }}
     </style>
 </head>
@@ -248,7 +279,10 @@ def build_leaderboard_html(data: list[dict], current_sort: str, leaderboards: di
         {tabs_html}
     </ul>
     {table_html}
-    <p class="auto-refresh">Auto-refreshes every 30 seconds</p>
+    <div class="footer">
+        <span>Auto-refreshes every 30 seconds</span>
+        <span>{toggle_link}</span>
+    </div>
 </body>
 </html>"""
 
@@ -282,10 +316,10 @@ def build_tokens_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{row['total_tokens']:,}</td>
-            <td>${row['total_cost']:.4f}</td>
-            <td>{row['request_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{row["total_tokens"]:,}</td>
+            <td>${row["total_cost"]:.4f}</td>
+            <td>{row["request_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="5">No data yet</td></tr>'
@@ -302,10 +336,10 @@ def build_cost_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>${row['total_cost']:.4f}</td>
-            <td>{row['total_tokens']:,}</td>
-            <td>{row['request_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>${row["total_cost"]:.4f}</td>
+            <td>{row["total_tokens"]:,}</td>
+            <td>{row["request_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="5">No data yet</td></tr>'
@@ -322,9 +356,9 @@ def build_time_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{row['total_duration']}</td>
-            <td>{row['request_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{row["total_duration"]}</td>
+            <td>{row["request_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
@@ -341,11 +375,11 @@ def build_io_ratio_table(data: list[dict], title: str) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{row['io_ratio']}</td>
-            <td>{row['total_input']:,}</td>
-            <td>{row['total_output']:,}</td>
-            <td>{row['request_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{row["io_ratio"]}</td>
+            <td>{row["total_input"]:,}</td>
+            <td>{row["total_output"]:,}</td>
+            <td>{row["request_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="6">No data yet</td></tr>'
@@ -362,9 +396,9 @@ def build_streak_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{row['longest_streak']} days</td>
-            <td>{row['total_days']} days</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{row["longest_streak"]} days</td>
+            <td>{row["total_days"]} days</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
@@ -381,9 +415,9 @@ def build_session_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{row['session_duration']}</td>
-            <td>{row['request_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{row["session_duration"]}</td>
+            <td>{row["request_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
@@ -400,9 +434,9 @@ def build_models_table(data: list[dict]) -> str:
         rows.append(f"""
         <tr>
             <td>{i}</td>
-            <td>{html_escape(row['email'])}</td>
-            <td>{html_escape(row['favorite_model'])}</td>
-            <td>{row['model_count']}</td>
+            <td>{html_escape(row["email"])}</td>
+            <td>{html_escape(row["favorite_model"])}</td>
+            <td>{row["model_count"]}</td>
         </tr>
         """)
     rows_html = "".join(rows) if rows else '<tr><td colspan="4">No data yet</td></tr>'
@@ -415,7 +449,7 @@ def build_models_table(data: list[dict]) -> str:
 
 def build_generic_table(data: list[dict]) -> str:
     if not data:
-        return '<table><tbody><tr><td>No data yet</td></tr></tbody></table>'
+        return "<table><tbody><tr><td>No data yet</td></tr></tbody></table>"
 
     headers = list(data[0].keys())
     header_row = "".join(f"<th>{html_escape(str(h))}</th>" for h in headers)
@@ -434,4 +468,5 @@ def build_generic_table(data: list[dict]) -> str:
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host=HOST, port=PORT)

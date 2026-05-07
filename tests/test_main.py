@@ -196,7 +196,12 @@ def test_otlp_logs_skips_events_without_email():
     # The event is parsed with user_email="device-abc" (fallback to user.id)
     assert response.json()["events_processed"] == 1
 
+    # Hidden by default (no '@' = treated as an anonymous token)
     response = client.get("/api/leaderboard?sort=tokens")
+    assert response.json()["data"] == []
+
+    # Visible with all=true
+    response = client.get("/api/leaderboard?sort=tokens&all=true")
     data = response.json()
     assert len(data["data"]) == 1
     assert data["data"][0]["email"] == "device-abc"
@@ -273,6 +278,92 @@ def test_leaderboard_html_escapes_email():
     assert b"<script>alert(1)</script>" not in response.content
     # The escaped version should appear
     assert b"&lt;script&gt;" in response.content
+
+
+def _post_event(email: str, tokens: int = 100, cost: float = 0.01) -> None:
+    """Helper: send an OTLP event for the given email."""
+    payload = {
+        "resourceLogs": [{
+            "scopeLogs": [{
+                "logRecords": [{
+                    "attributes": [
+                        {"key": "event.name", "value": {"stringValue": "api_request"}},
+                        {"key": "user.email", "value": {"stringValue": email}},
+                        {"key": "input_tokens", "value": {"intValue": tokens}},
+                        {"key": "output_tokens", "value": {"intValue": tokens // 2}},
+                        {"key": "cost_usd", "value": {"doubleValue": cost}},
+                    ]
+                }]
+            }]
+        }]
+    }
+    client.post("/v1/logs", json=payload)
+
+
+def test_api_leaderboard_filters_anonymous_tokens_by_default():
+    """Default API view hides anonymous tokens (no '@')."""
+    _post_event("alice@example.com", 200, 0.20)
+    _post_event("c97d98b413655d2d4fc5c43e814da714b044eaa939a24950ac60cc8cb119a6ba", 100, 0.10)
+
+    response = client.get("/api/leaderboard?sort=tokens")
+    data = response.json()
+    emails = [e["email"] for e in data["data"]]
+    assert emails == ["alice@example.com"]
+
+
+def test_api_leaderboard_all_true_includes_anonymous_tokens():
+    """all=true API view includes anonymous tokens."""
+    _post_event("alice@example.com", 200, 0.20)
+    anonymous = "c97d98b413655d2d4fc5c43e814da714b044eaa939a24950ac60cc8cb119a6ba"
+    _post_event(anonymous, 100, 0.10)
+
+    response = client.get("/api/leaderboard?sort=tokens&all=true")
+    data = response.json()
+    emails = [e["email"] for e in data["data"]]
+    assert set(emails) == {"alice@example.com", anonymous}
+
+
+def test_leaderboard_html_filters_anonymous_tokens_by_default():
+    """Default HTML view does not render anonymous tokens."""
+    anonymous = "c97d98b413655d2d4fc5c43e814da714b044eaa939a24950ac60cc8cb119a6ba"
+    _post_event("alice@example.com", 200, 0.20)
+    _post_event(anonymous, 100, 0.10)
+
+    response = client.get("/leaderboard?sort=tokens")
+    assert response.status_code == 200
+    assert b"alice@example.com" in response.content
+    assert anonymous.encode() not in response.content
+
+
+def test_leaderboard_html_all_true_includes_anonymous_tokens():
+    """HTML view with all=true renders anonymous tokens."""
+    anonymous = "c97d98b413655d2d4fc5c43e814da714b044eaa939a24950ac60cc8cb119a6ba"
+    _post_event("alice@example.com", 200, 0.20)
+    _post_event(anonymous, 100, 0.10)
+
+    response = client.get("/leaderboard?sort=tokens&all=true")
+    assert response.status_code == 200
+    assert b"alice@example.com" in response.content
+    assert anonymous.encode() in response.content
+
+
+def test_leaderboard_html_toggle_link_reflects_state():
+    """Toggle link offers the opposite view from the current one."""
+    response = client.get("/leaderboard?sort=tokens")
+    assert b"Show anonymous tokens" in response.content
+    assert b"sort=tokens&all=true" in response.content
+
+    response = client.get("/leaderboard?sort=cost&all=true")
+    assert b"Hide anonymous tokens" in response.content
+    # Hide-link drops the all flag
+    assert b'href="leaderboard?sort=cost"' in response.content
+
+
+def test_leaderboard_html_tabs_preserve_all_flag():
+    """When all=true, tab links should preserve the flag."""
+    response = client.get("/leaderboard?sort=tokens&all=true")
+    assert b"sort=cost&all=true" in response.content
+    assert b"sort=models&all=true" in response.content
 
 
 def test_root_redirects():

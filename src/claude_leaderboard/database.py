@@ -28,6 +28,10 @@ CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);
 CREATE INDEX IF NOT EXISTS idx_requests_model ON requests(model);
 """
 
+# Filter that excludes anonymous tokens (identified only by token checksum, no
+# email) like the ones used by code-review workers. Real emails contain '@'.
+_EMAIL_ONLY_FILTER = "email LIKE '%@%'"
+
 
 def init_db(conn: sqlite3.Connection) -> None:
     """Initialize the database schema."""
@@ -93,16 +97,18 @@ def format_duration(ms: int) -> str:
     return f"{hours}h {minutes}m"
 
 
-def get_leaderboard_tokens(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_tokens(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by total tokens (input + output, excluding cache)."""
+    where = "" if include_invalid else f"WHERE {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             SUM(input_tokens + output_tokens) as total_tokens,
             SUM(cost_usd) as total_cost,
             COUNT(*) as request_count
         FROM requests
+        {where}
         GROUP BY email
         ORDER BY total_tokens DESC
         """
@@ -118,16 +124,18 @@ def get_leaderboard_tokens(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_leaderboard_cost(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_cost(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by total cost."""
+    where = "" if include_invalid else f"WHERE {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             SUM(cost_usd) as total_cost,
             SUM(input_tokens + output_tokens) as total_tokens,
             COUNT(*) as request_count
         FROM requests
+        {where}
         GROUP BY email
         ORDER BY total_cost DESC
         """
@@ -143,15 +151,17 @@ def get_leaderboard_cost(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_leaderboard_time(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_time(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by total time spent interacting with AI."""
+    where = "" if include_invalid else f"WHERE {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             SUM(duration_ms) as total_duration_ms,
             COUNT(*) as request_count
         FROM requests
+        {where}
         GROUP BY email
         ORDER BY total_duration_ms DESC
         """
@@ -167,14 +177,15 @@ def get_leaderboard_time(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_leaderboard_io_ratio(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_io_ratio(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by input/output token ratio.
 
     Ratio > 1.0 means user talks more than AI (verbose)
     Ratio < 1.0 means user is efficient with prompts
     """
+    where = "" if include_invalid else f"WHERE {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             SUM(input_tokens) as total_input,
@@ -182,6 +193,7 @@ def get_leaderboard_io_ratio(conn: sqlite3.Connection) -> list[dict]:
             CAST(SUM(input_tokens) AS REAL) / NULLIF(SUM(output_tokens), 0) as io_ratio,
             COUNT(*) as request_count
         FROM requests
+        {where}
         GROUP BY email
         HAVING SUM(output_tokens) > 0
         ORDER BY io_ratio DESC
@@ -199,10 +211,11 @@ def get_leaderboard_io_ratio(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_leaderboard_efficiency(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_efficiency(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by efficiency (output/input ratio, lower io_ratio = more efficient)."""
+    where = "" if include_invalid else f"WHERE {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             SUM(input_tokens) as total_input,
@@ -210,6 +223,7 @@ def get_leaderboard_efficiency(conn: sqlite3.Connection) -> list[dict]:
             CAST(SUM(input_tokens) AS REAL) / NULLIF(SUM(output_tokens), 0) as io_ratio,
             COUNT(*) as request_count
         FROM requests
+        {where}
         GROUP BY email
         HAVING SUM(output_tokens) > 0
         ORDER BY io_ratio ASC
@@ -227,16 +241,17 @@ def get_leaderboard_efficiency(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_favorite_models(conn: sqlite3.Connection) -> list[dict]:
+def get_favorite_models(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get favorite model per user (model with most requests)."""
+    extra = "" if include_invalid else f" AND {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             model,
             COUNT(*) as model_count
         FROM requests
-        WHERE model IS NOT NULL
+        WHERE model IS NOT NULL{extra}
         GROUP BY email, model
         ORDER BY email, model_count DESC
         """
@@ -254,15 +269,16 @@ def get_favorite_models(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def get_leaderboard_streak(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_streak(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by longest streak of consecutive days with AI interaction."""
+    extra = "" if include_invalid else f" AND {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             DATE(timestamp) as day
         FROM requests
-        WHERE timestamp IS NOT NULL
+        WHERE timestamp IS NOT NULL{extra}
         GROUP BY email, day
         ORDER BY email, day
         """
@@ -306,10 +322,11 @@ def get_leaderboard_streak(conn: sqlite3.Connection) -> list[dict]:
     return streaks
 
 
-def get_leaderboard_session(conn: sqlite3.Connection) -> list[dict]:
+def get_leaderboard_session(conn: sqlite3.Connection, include_invalid: bool = False) -> list[dict]:
     """Get leaderboard sorted by longest single session."""
+    extra = "" if include_invalid else f" AND {_EMAIL_ONLY_FILTER}"
     cursor = conn.execute(
-        """
+        f"""
         SELECT
             email,
             session_id,
@@ -318,7 +335,7 @@ def get_leaderboard_session(conn: sqlite3.Connection) -> list[dict]:
             COUNT(*) as request_count,
             SUM(duration_ms) as session_duration_ms
         FROM requests
-        WHERE session_id IS NOT NULL AND timestamp IS NOT NULL
+        WHERE session_id IS NOT NULL AND timestamp IS NOT NULL{extra}
         GROUP BY email, session_id
         """
     )

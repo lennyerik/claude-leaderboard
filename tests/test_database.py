@@ -268,6 +268,59 @@ def test_format_duration():
     assert format_duration(3661500) == "1h 1m"
 
 
+def _seed_email_and_anonymous(conn: sqlite3.Connection) -> None:
+    """Insert one user with an email and one anonymous token (token checksum only)."""
+    anonymous = "580bebf49f1a858a7201d6a6f55b171db11f8fdebf38fef3de8d7b27f5d32548"
+    insert_request(conn, "alice@example.com", "s1", "haiku", 100, 50, 0, 0, 0.10, 1000, "2026-04-08T10:00:00Z")
+    insert_request(conn, "alice@example.com", "s1", "haiku", 100, 50, 0, 0, 0.10, 1000, "2026-04-09T10:00:00Z")
+    insert_request(conn, anonymous, "s2", "haiku", 100, 50, 0, 0, 0.10, 1000, "2026-04-08T11:00:00Z")
+    insert_request(conn, anonymous, "s2", "haiku", 100, 50, 0, 0, 0.10, 1000, "2026-04-09T11:00:00Z")
+
+
+def test_leaderboard_filters_anonymous_tokens_by_default():
+    """All leaderboards exclude rows whose 'email' lacks '@' by default."""
+    conn = sqlite3.connect(TEST_DB)
+    init_db(conn)
+    _seed_email_and_anonymous(conn)
+
+    for fn in (
+        get_leaderboard_tokens,
+        get_leaderboard_cost,
+        get_leaderboard_time,
+        get_leaderboard_io_ratio,
+        get_leaderboard_efficiency,
+        get_leaderboard_streak,
+        get_leaderboard_session,
+        get_favorite_models,
+    ):
+        result = fn(conn)
+        emails = [r["email"] for r in result]
+        assert emails == ["alice@example.com"], f"{fn.__name__} returned {emails}"
+    conn.close()
+
+
+def test_leaderboard_include_invalid_returns_anonymous_tokens():
+    """include_invalid=True returns both email users and anonymous tokens."""
+    conn = sqlite3.connect(TEST_DB)
+    init_db(conn)
+    _seed_email_and_anonymous(conn)
+
+    for fn in (
+        get_leaderboard_tokens,
+        get_leaderboard_cost,
+        get_leaderboard_time,
+        get_leaderboard_io_ratio,
+        get_leaderboard_efficiency,
+        get_leaderboard_streak,
+        get_leaderboard_session,
+        get_favorite_models,
+    ):
+        emails = {r["email"] for r in fn(conn, include_invalid=True)}
+        assert len(emails) == 2, f"{fn.__name__} returned {emails}"
+        assert "alice@example.com" in emails
+    conn.close()
+
+
 def test_empty_leaderboards():
     """Test that empty leaderboards return empty lists."""
     conn = sqlite3.connect(TEST_DB)
